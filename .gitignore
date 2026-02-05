@@ -6,3 +6,5 @@ outputs
 .env
 .mypy_cache
 .ipynb_checkpoints
+lightning_logs
+__marimo__

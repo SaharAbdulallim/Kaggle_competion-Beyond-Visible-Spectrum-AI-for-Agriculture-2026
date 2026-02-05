@@ -126,7 +126,6 @@ class WheatDataset(Dataset):
         self.cfg = cfg
         self.hs_ch = hs_ch
         self.transforms = transforms
-        self.concat_mode = cfg.CONCAT_MODE
         
         self.rgb_ch = 3 if cfg.USE_RGB else 0
         self.ms_ch = 5 if cfg.USE_MS else 0
@@ -171,35 +170,23 @@ class WheatDataset(Dataset):
         row = self.df.iloc[i]
         modalities = self._load_modalities(row)
         
-        if self.concat_mode:
-            tensors = [m for m in [modalities["rgb"], modalities["ms"], modalities["hs"]] if m is not None]
-            img = torch.cat(tensors, 0) if tensors else torch.zeros(self.total_ch, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
-            
-            if self.transforms:
-                img = self.transforms(img.unsqueeze(0)).squeeze(0)
-            
-            if "label" in row:
-                return img, torch.tensor(LBL2ID[row["label"]], dtype=torch.long)
-            return img, row["base_id"]
+        if modalities["rgb"] is None:
+            modalities["rgb"] = torch.zeros(3, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
+        if modalities["ms"] is None:
+            modalities["ms"] = torch.zeros(5, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
+        if modalities["hs"] is None:
+            modalities["hs"] = torch.zeros(self.hs_ch, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
         
-        else:
-            if modalities["rgb"] is None:
-                modalities["rgb"] = torch.zeros(3, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
-            if modalities["ms"] is None:
-                modalities["ms"] = torch.zeros(5, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
-            if modalities["hs"] is None:
-                modalities["hs"] = torch.zeros(self.hs_ch, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
-            
-            if self.transforms:
-                stacked = torch.cat([modalities["rgb"], modalities["ms"], modalities["hs"]], 0)
-                stacked = self.transforms(stacked.unsqueeze(0)).squeeze(0)
-                modalities["rgb"] = stacked[:3]
-                modalities["ms"] = stacked[3:8]
-                modalities["hs"] = stacked[8:]
-            
-            if "label" in row:
-                return modalities, torch.tensor(LBL2ID[row["label"]], dtype=torch.long)
-            return modalities, row["base_id"]
+        if self.transforms:
+            stacked = torch.cat([modalities["rgb"], modalities["ms"], modalities["hs"]], 0)
+            stacked = self.transforms(stacked.unsqueeze(0)).squeeze(0)
+            modalities["rgb"] = stacked[:3]
+            modalities["ms"] = stacked[3:8]
+            modalities["hs"] = stacked[8:]
+        
+        if "label" in row:
+            return modalities, torch.tensor(LBL2ID[row["label"]], dtype=torch.long)
+        return modalities, row["base_id"]
 
 
 class WheatDataModule(pl.LightningDataModule):

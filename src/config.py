@@ -20,11 +20,12 @@ class CFG:
     NUM_WORKERS: int = 4
     SEED: int = 3557
     
-    BACKBONE: str = "resnet50"
+    RGB_BACKBONE: str = "efficientnet_b0"
+    MS_BACKBONE: str = "efficientnet_b0"
+    HS_BACKBONE: str = "resnet18"
+    
     HS_DROP_FIRST: int = 10
     HS_DROP_LAST: int = 14
-    
-    CONCAT_MODE: bool = True
     
     OUT_DIR: str = "./outputs"
 

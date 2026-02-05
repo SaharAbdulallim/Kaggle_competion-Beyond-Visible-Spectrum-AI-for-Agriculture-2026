@@ -7,56 +7,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger
 from torchmetrics import Accuracy, F1Score
 
 from src.config import CFG, ID2LBL
 from src.utils import WheatDataModule, seed_everything
-
-
-class ConcatModalityClassifier(pl.LightningModule):
-    def __init__(self, cfg: CFG, in_channels: int, num_classes: int = 3):
-        super().__init__()
-        self.save_hyperparameters()
-        self.cfg = cfg
-        
-        self.backbone = timm.create_model(cfg.BACKBONE, pretrained=True, in_chans=in_channels, num_classes=num_classes)
-        
-        self.train_acc = Accuracy(task='multiclass', num_classes=num_classes)
-        self.val_acc = Accuracy(task='multiclass', num_classes=num_classes)
-        self.val_f1 = F1Score(task='multiclass', num_classes=num_classes, average='macro')
-    
-    def forward(self, x):
-        return self.backbone(x)
-    
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = F.cross_entropy(logits, y)
-        self.train_acc(logits, y)
-        self.log('train_loss', loss, prog_bar=True)
-        self.log('train_acc', self.train_acc, prog_bar=True)
-        return loss
-    
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = F.cross_entropy(logits, y)
-        self.val_acc(logits, y)
-        self.val_f1(logits, y)
-        self.log('val_loss', loss, prog_bar=True)
-        self.log('val_acc', self.val_acc, prog_bar=True)
-        self.log('val_f1', self.val_f1, prog_bar=True)
-    
-    def predict_step(self, batch, batch_idx):
-        x, ids = batch
-        logits = self(x)
-        return {'ids': ids, 'preds': logits.argmax(1)}
-    
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.cfg.LR, weight_decay=self.cfg.WD)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.cfg.EPOCHS)
-        return [optimizer], [scheduler]
 
 
 class MultiModalClassifier(pl.LightningModule):
@@ -65,12 +19,12 @@ class MultiModalClassifier(pl.LightningModule):
         self.save_hyperparameters()
         self.cfg = cfg
         
-        self.rgb_enc = timm.create_model(cfg.BACKBONE, pretrained=True, in_chans=3, num_classes=0)
-        self.ms_enc = timm.create_model(cfg.BACKBONE, pretrained=False, in_chans=5, num_classes=0)
-        self.hs_enc = timm.create_model(cfg.BACKBONE, pretrained=False, in_chans=hs_channels, num_classes=0)
+        self.rgb_enc = timm.create_model(cfg.RGB_BACKBONE, pretrained=True, in_chans=3, num_classes=0)
+        self.ms_enc = timm.create_model(cfg.MS_BACKBONE, pretrained=False, in_chans=5, num_classes=0)
+        self.hs_enc = timm.create_model(cfg.HS_BACKBONE, pretrained=False, in_chans=hs_channels, num_classes=0)
         
-        feat_dim = self.rgb_enc.num_features
-        self.classifier = nn.Linear(feat_dim * 3, num_classes)
+        total_feat_dim = self.rgb_enc.num_features + self.ms_enc.num_features + self.hs_enc.num_features
+        self.classifier = nn.Linear(total_feat_dim, num_classes)
         
         self.train_acc = Accuracy(task='multiclass', num_classes=num_classes)
         self.val_acc = Accuracy(task='multiclass', num_classes=num_classes)
@@ -122,13 +76,10 @@ def main():
     dm = WheatDataModule(cfg)
     dm.setup()
     
-    print(f"Mode: {'CONCAT' if cfg.CONCAT_MODE else 'MULTIMODAL'}")
+    print(f"Mode: MULTIMODAL")
     print(f"Channels: {dm.n_ch} | HS: {dm.hs_ch} | Train: {len(dm.train_ds)} | Val: {len(dm.val_ds)} | Test: {len(dm.test_ds)}")
     
-    if cfg.CONCAT_MODE:
-        model = ConcatModalityClassifier(cfg, in_channels=dm.n_ch, num_classes=3)
-    else:
-        model = MultiModalClassifier(cfg, hs_channels=dm.hs_ch, num_classes=3)
+    model = MultiModalClassifier(cfg, hs_channels=dm.hs_ch, num_classes=3)
     
     checkpoint_cb = ModelCheckpoint(
         dirpath=cfg.OUT_DIR,
@@ -145,7 +96,6 @@ def main():
         accelerator='auto',
         devices=1,
         callbacks=[checkpoint_cb, early_stop_cb],
-        logger=CSVLogger(cfg.OUT_DIR),
         precision='16-mixed',
         deterministic=True
     )
@@ -162,8 +112,8 @@ def main():
         'Category': [ID2LBL[p] for p in preds]
     })
     sub.to_csv(os.path.join(cfg.OUT_DIR, 'submission.csv'), index=False)
-    print(f"\n✓ Submission saved: {os.path.join(cfg.OUT_DIR, 'submission.csv')}")
-    print(f"✓ Best model: {checkpoint_cb.best_model_path}")
+    print(f"Submission saved: {os.path.join(cfg.OUT_DIR, 'submission.csv')}")
+    print(f"Best model: {checkpoint_cb.best_model_path}")
 
 
 if __name__ == "__main__":
