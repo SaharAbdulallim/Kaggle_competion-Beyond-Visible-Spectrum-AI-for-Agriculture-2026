@@ -29,6 +29,7 @@ class CFG:
     
     WANDB_ENABLED: bool = False
     WANDB_PROJECT_NAME: str = "wheat-disease-multimodal"
+    WANDB_RUN_NAME: str = None
     
     OUT_DIR: str = "./outputs"
 
