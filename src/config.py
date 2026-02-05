@@ -27,6 +27,9 @@ class CFG:
     HS_DROP_FIRST: int = 10
     HS_DROP_LAST: int = 14
     
+    WANDB_ENABLED: bool = False
+    WANDB_PROJECT_NAME: str = "wheat-disease-multimodal"
+    
     OUT_DIR: str = "./outputs"
 
 

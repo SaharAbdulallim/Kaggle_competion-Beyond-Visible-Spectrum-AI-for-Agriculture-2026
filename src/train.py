@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
 from torchmetrics import Accuracy, F1Score
 
 from src.config import CFG, ID2LBL
@@ -111,11 +112,14 @@ def main():
     
     early_stop_cb = EarlyStopping(monitor='val_f1', patience=15, mode='max')
     
+    logger = WandbLogger(project=cfg.WANDB_PROJECT_NAME, name=None) if cfg.WANDB_ENABLED else True
+    
     trainer = pl.Trainer(
         max_epochs=cfg.EPOCHS,
         accelerator='auto',
         devices=1,
         callbacks=[checkpoint_cb, early_stop_cb],
+        logger=logger,
         precision='16-mixed',
         deterministic=True
     )
