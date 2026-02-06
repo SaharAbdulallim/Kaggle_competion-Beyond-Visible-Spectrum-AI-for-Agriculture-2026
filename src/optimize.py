@@ -29,7 +29,6 @@ def objective(trial: optuna.Trial) -> float:
     cfg.WD = trial.suggest_float("weight_decay", 0.01, 0.1, log=True)
     cfg.LABEL_SMOOTHING = trial.suggest_float("label_smoothing", 0.0, 0.15, step=0.05)
     cfg.MIXUP_ALPHA = trial.suggest_float("mixup_alpha", 0.0, 0.3, step=0.1)
-    cfg.FUSION_TYPE = trial.suggest_categorical("fusion_type", ["concat", "attention"])
     cfg.BATCH_SIZE = trial.suggest_categorical("batch_size", [32, 64])
     cfg.LR = trial.suggest_float("learning_rate", 1e-4, 5e-4, log=True)
     

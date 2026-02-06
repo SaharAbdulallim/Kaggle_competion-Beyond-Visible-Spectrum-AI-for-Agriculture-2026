@@ -44,6 +44,7 @@ class WheatClassifier(pl.LightningModule):
         self.criterion = nn.CrossEntropyLoss(label_smoothing=cfg.LABEL_SMOOTHING)
         
         self.train_acc = Accuracy(task='multiclass', num_classes=num_classes)
+        self.train_f1 = F1Score(task='multiclass', num_classes=num_classes, average='macro')
         self.val_acc = Accuracy(task='multiclass', num_classes=num_classes)
         self.val_f1 = F1Score(task='multiclass', num_classes=num_classes, average='macro')
     
@@ -62,9 +63,15 @@ class WheatClassifier(pl.LightningModule):
             loss = self.criterion(logits, y)
         
         self.train_acc(logits, y)
+        self.train_f1(logits, y)
         self.log('train_loss', loss, prog_bar=True)
         self.log('train_acc', self.train_acc, prog_bar=True)
+        self.log('train_f1', self.train_f1, prog_bar=False)
         return loss
+    
+    def on_train_epoch_end(self):
+        train_f1 = self.train_f1.compute()
+        self.log('epoch_train_f1', train_f1)
     
     def validation_step(self, batch, batch_idx):
         x, y = batch
@@ -76,6 +83,11 @@ class WheatClassifier(pl.LightningModule):
         self.log('val_loss', loss, prog_bar=True)
         self.log('val_acc', self.val_acc, prog_bar=True)
         self.log('val_f1', self.val_f1, prog_bar=True)
+    
+    # def on_validation_epoch_end(self):
+    #     train_f1 = self.trainer.callback_metrics.get('epoch_train_f1', 0.0)
+    #     val_f1 = self.val_f1.compute()
+    #     # print(f"train_f1={train_f1:.3f} | val_f1={val_f1:.3f}")
     
     def predict_step(self, batch, batch_idx):
         x, ids = batch

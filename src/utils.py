@@ -89,24 +89,30 @@ def read_tiff(path: str) -> np.ndarray:
     return arr
 
 
-def normalize_minmax(x: np.ndarray) -> np.ndarray:
-    x = np.nan_to_num(x, 0.0).astype(np.float32)
-    flat = x.reshape(-1, x.shape[2])
-    mn, mx = flat.min(0), flat.max(0)
+def normalize_per_band_minmax(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+    H, W, C = x.shape
+    flat = x.reshape(-1, C)
+    mn = flat.min(axis=0)
+    mx = flat.max(axis=0)
     denom = mx - mn
-    denom[denom < 1e-6] = 1.0
-    return np.clip((x - mn) / denom, 0, 1)
+    denom[denom < eps] = 1.0
+    x = (x - mn.reshape(1, 1, C)) / denom.reshape(1, 1, C)
+    return np.clip(x, 0.0, 1.0)
 
 
 def read_ms(path: str) -> torch.Tensor:
-    return torch.from_numpy(normalize_minmax(read_tiff(path))).permute(2, 0, 1)
+    arr = read_tiff(path)
+    arr = normalize_per_band_minmax(arr)
+    return torch.from_numpy(arr).permute(2, 0, 1)
 
 
 def read_hs(path: str, drop_first: int, drop_last: int) -> torch.Tensor:
     arr = read_tiff(path)
     if arr.shape[2] > drop_first + drop_last + 1:
         arr = arr[:, :, drop_first:-drop_last if drop_last > 0 else arr.shape[2]]
-    return torch.from_numpy(normalize_minmax(arr)).permute(2, 0, 1)
+    arr = normalize_per_band_minmax(arr)
+    return torch.from_numpy(arr).permute(2, 0, 1)
 
 
 def resize_tensor(x: torch.Tensor, size: int) -> torch.Tensor:
@@ -128,7 +134,6 @@ class WheatDataset(Dataset):
         self.hs_ch = hs_ch
         self.transforms = transforms
         self.pca_model = pca_model
-        self.pca_n_features = pca_n_features if pca_n_features is not None else hs_ch
         self.pca_n_features = pca_n_features if pca_n_features is not None else hs_ch
         
         self.rgb_ch = 3 if cfg.USE_RGB else 0
@@ -171,11 +176,11 @@ class WheatDataset(Dataset):
                     x = torch.cat([x, pad], 0)
                 elif x.shape[0] > target_ch:
                     x = x[:target_ch]
-                x = resize_tensor(x, self.cfg.IMG_SIZE)
                 C, H, W = x.shape
                 x_flat = x.permute(1, 2, 0).reshape(-1, C).numpy()
                 x_pca = self.pca_model.transform(x_flat)
                 x = torch.from_numpy(x_pca.reshape(H, W, self.cfg.PCA_COMPONENTS)).permute(2, 0, 1).float()
+                x = resize_tensor(x, self.cfg.IMG_SIZE)
             else:
                 if x.shape[0] < self.hs_ch:
                     pad = torch.zeros(self.hs_ch - x.shape[0], *x.shape[1:])

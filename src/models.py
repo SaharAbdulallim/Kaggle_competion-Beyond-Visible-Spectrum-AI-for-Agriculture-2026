@@ -26,22 +26,6 @@ class SpectralAttention(nn.Module):
         return x * y.expand_as(x)
 
 
-class AttentionFusion(nn.Module):
-    """Multi-head attention-based fusion of modality features."""
-    def __init__(self, dim, num_heads=4):
-        super().__init__()
-        self.proj = nn.Linear(dim, dim)
-        self.attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
-        self.norm = nn.LayerNorm(dim)
-    
-    def forward(self, features_list):
-        # features_list: list of (B, D) tensors, project to same dim first
-        features = torch.stack([self.proj(f) for f in features_list], dim=1)
-        features = self.norm(features)
-        attn_out, _ = self.attn(features, features, features)
-        return attn_out.mean(dim=1)
-
-
 class MultiModalClassifier(nn.Module):
     """Multimodal classifier for RGB + Multispectral + Hyperspectral data.
     
@@ -64,7 +48,7 @@ class MultiModalClassifier(nn.Module):
         if self.use_rgb:
             self.rgb_encoder = timm.create_model(
                 cfg.RGB_BACKBONE,
-                pretrained=(cfg.RGB_PRETRAINED_WEIGHTS == 'imagenet'),
+                pretrained=cfg.RGB_PRETRAINED,
                 in_chans=3,
                 num_classes=0
             )
@@ -85,36 +69,30 @@ class MultiModalClassifier(nn.Module):
             self.ms_attention = SpectralAttention(5)
             self.ms_encoder = timm.create_model(
                 cfg.MS_BACKBONE,
-                pretrained=False,
+                pretrained=True,
                 in_chans=5,
                 num_classes=0
             )
+            if cfg.MS_FREEZE_ENCODER:
+                for param in self.ms_encoder.parameters():
+                    param.requires_grad = False
             feat_dims.append(self.ms_encoder.num_features)
         
         if self.use_hs:
             self.hs_attention = SpectralAttention(hs_channels)
             self.hs_encoder = timm.create_model(
                 cfg.HS_BACKBONE,
-                pretrained=False,
+                pretrained=True,
                 in_chans=hs_channels,
                 num_classes=0
             )
+            if cfg.HS_FREEZE_ENCODER:
+                for param in self.hs_encoder.parameters():
+                    param.requires_grad = False
             feat_dims.append(self.hs_encoder.num_features)
         
         total_feat_dim = sum(feat_dims)
-        
-        if cfg.FUSION_TYPE == 'attention' and len(feat_dims) > 1:
-            max_dim = max(feat_dims)
-            self.fusion_proj = nn.ModuleList([
-                nn.Linear(dim, max_dim) if dim != max_dim else nn.Identity()
-                for dim in feat_dims
-            ])
-            self.fusion = AttentionFusion(max_dim)
-            classifier_in = max_dim
-        else:
-            self.fusion_proj = None
-            self.fusion = None
-            classifier_in = total_feat_dim
+        classifier_in = total_feat_dim
         
         self.classifier = nn.Sequential(
             nn.Dropout(cfg.DROPOUT),
@@ -146,12 +124,7 @@ class MultiModalClassifier(nn.Module):
             hs_feat = self.hs_encoder(hs)
             features.append(hs_feat)
         
-        if self.fusion is not None and len(features) > 1:
-            features = [proj(f) for proj, f in zip(self.fusion_proj, features)]
-            fused = self.fusion(features)
-        else:
-            fused = torch.cat(features, dim=1)
-        
+        fused = torch.cat(features, dim=1)
         return self.classifier(fused)
     
     def count_trainable_params(self):

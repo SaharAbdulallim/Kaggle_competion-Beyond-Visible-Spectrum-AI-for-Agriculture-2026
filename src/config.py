@@ -14,10 +14,12 @@ class CFG:
     
     # Architecture
     RGB_BACKBONE: str = "resnet34"
-    MS_BACKBONE: str = "resnet18"
-    HS_BACKBONE: str = "resnet18"
-    RGB_PRETRAINED_WEIGHTS: str = "imagenet"
+    MS_BACKBONE: str = "resnet10t"
+    HS_BACKBONE: str = "resnet10t"
+    RGB_PRETRAINED: bool = True
     RGB_FREEZE_ENCODER: bool = True
+    MS_FREEZE_ENCODER: bool = True
+    HS_FREEZE_ENCODER: bool = True
     
     # PCA for Hyperspectral
     PCA_COMPONENTS: int = 20
@@ -32,7 +34,6 @@ class CFG:
     LABEL_SMOOTHING: float = 0.1
     DROPOUT: float = 0.5
     MIXUP_ALPHA: float = 0.2
-    FUSION_TYPE: str = "concat"  # options: "concat", "attention"
     
     NUM_WORKERS: int = 4
     SEED: int = 3557
@@ -47,13 +48,17 @@ class CFG:
     
     # MS/HS stats computed from training data - update after running stats.py
     MS_MEAN: tuple = (0.382, 0.404, 0.378, 0.397, 0.393)
-    MS_STD: tuple = (0.209, 0.206, 0.209, 0.205, 0.206)
+    MS_STD: tuple = (0.211, 0.208, 0.211, 0.207, 0.208)
     
     # HS PCA stats (20 components) - update after running stats.py with PCA
-    HS_MEAN: tuple = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    HS_STD: tuple = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-                     1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+    HS_MEAN: tuple = (-0.000003, -0.000006, -0.000005, -0.000001, 0.000004,
+                      -0.000003, 0.000002, 0.000001, 0.000000, -0.000001,
+                      -0.000002, 0.000001, 0.000000, 0.000001, -0.000000,
+                      0.000000, -0.000000, 0.000000, 0.000000, -0.000000)
+    HS_STD: tuple = (2.051, 0.892, 0.218, 0.181, 0.112,
+                     0.081, 0.055, 0.046, 0.035, 0.029,
+                     0.024, 0.021, 0.018, 0.016, 0.014,
+                     0.013, 0.012, 0.011, 0.010, 0.009)
     
     # Logging
     WANDB_ENABLED: bool = True

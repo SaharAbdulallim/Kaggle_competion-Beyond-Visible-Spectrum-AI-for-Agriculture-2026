@@ -10,7 +10,6 @@ from src.utils import (
     read_hs,
     read_ms,
     read_rgb,
-    resize_tensor,
     stratified_holdout,
 )
 
@@ -22,49 +21,69 @@ def calculate_stats(cfg, verbose=True, fit_pca=False, pca_path="pca_hs.pkl"):
     if verbose:
         print(f"Calculating statistics from {len(train_df)} samples...")
     
-    rgb_vals, ms_vals, hs_vals, hs_max_ch = [], [], [], 0
+    rgb_vals, ms_vals, hs_vals, hs_shapes = [], [], [], []
     
     for idx in tqdm(range(len(train_df)), desc="Loading", disable=not verbose):
         row = train_df.iloc[idx]
         
         if cfg.USE_RGB and 'rgb' in row and row['rgb']:
-            rgb_vals.append(resize_tensor(read_rgb(row['rgb']), cfg.IMG_SIZE))
+            rgb_vals.append(read_rgb(row['rgb']))
         
         if cfg.USE_MS and 'ms' in row and row['ms']:
-            ms_vals.append(resize_tensor(read_ms(row['ms']), cfg.IMG_SIZE))
+            ms_vals.append(read_ms(row['ms']))
         
         if cfg.USE_HS and 'hs' in row and row['hs']:
-            hs = resize_tensor(read_hs(row['hs'], cfg.HS_DROP_FIRST, cfg.HS_DROP_LAST), cfg.IMG_SIZE)
+            hs = read_hs(row['hs'], cfg.HS_DROP_FIRST, cfg.HS_DROP_LAST)
             hs_vals.append(hs)
-            hs_max_ch = max(hs_max_ch, hs.shape[0])
+            hs_shapes.append(hs.shape)
     
     stats = {}
     
     if rgb_vals:
-        rgb_tensor = torch.stack(rgb_vals)
-        stats['rgb_mean'] = tuple(rgb_tensor.mean(dim=[0, 2, 3]).tolist())
-        stats['rgb_std'] = tuple(rgb_tensor.std(dim=[0, 2, 3]).tolist())
+        rgb_stacked = []
+        for rgb in rgb_vals:
+            C, H, W = rgb.shape
+            rgb_stacked.append(rgb.reshape(C, -1))
+        rgb_all = torch.cat(rgb_stacked, dim=1)
+        stats['rgb_mean'] = tuple(rgb_all.mean(dim=1).tolist())
+        stats['rgb_std'] = tuple(rgb_all.std(dim=1).tolist())
     
     if ms_vals:
-        ms_tensor = torch.stack(ms_vals)
-        stats['ms_mean'] = tuple(ms_tensor.mean(dim=[0, 2, 3]).tolist())
-        stats['ms_std'] = tuple(ms_tensor.std(dim=[0, 2, 3]).tolist())
+        ms_stacked = []
+        for ms in ms_vals:
+            C, H, W = ms.shape
+            ms_stacked.append(ms.reshape(C, -1))
+        ms_all = torch.cat(ms_stacked, dim=1)
+        stats['ms_mean'] = tuple(ms_all.mean(dim=1).tolist())
+        stats['ms_std'] = tuple(ms_all.std(dim=1).tolist())
     
     if hs_vals:
-        if hs_max_ch > min(hs.shape[0] for hs in hs_vals):
-            hs_padded = [torch.cat([hs, torch.zeros(hs_max_ch - hs.shape[0], *hs.shape[1:])], 0) if hs.shape[0] < hs_max_ch else hs for hs in hs_vals]
-        else:
-            hs_padded = hs_vals
-        hs_tensor = torch.stack(hs_padded)
-        stats['hs_mean'] = tuple(hs_tensor.mean(dim=[0, 2, 3]).tolist())
-        stats['hs_std'] = tuple(hs_tensor.std(dim=[0, 2, 3]).tolist())
+        hs_max_ch = max(s[0] for s in hs_shapes)
+        hs_stacked = []
+        for hs in hs_vals:
+            C, H, W = hs.shape
+            if C < hs_max_ch:
+                pad = torch.zeros(hs_max_ch - C, H, W)
+                hs = torch.cat([hs, pad], 0)
+            hs_stacked.append(hs.reshape(hs_max_ch, -1))
+        hs_all = torch.cat(hs_stacked, dim=1)
+        stats['hs_mean'] = tuple(hs_all.mean(dim=1).tolist())
+        stats['hs_std'] = tuple(hs_all.std(dim=1).tolist())
         stats['hs_channels'] = hs_max_ch
         
         if fit_pca and hasattr(cfg, 'PCA_COMPONENTS') and cfg.PCA_COMPONENTS > 0:
             if verbose:
                 print(f"\nFitting PCA: {hs_max_ch} channels → {cfg.PCA_COMPONENTS} components...")
             
-            hs_flat = hs_tensor.permute(0, 2, 3, 1).reshape(-1, hs_max_ch).numpy()
+            hs_flat_list = []
+            for hs in hs_vals:
+                C, H, W = hs.shape
+                if C < hs_max_ch:
+                    pad = torch.zeros(hs_max_ch - C, H, W)
+                    hs = torch.cat([hs, pad], 0)
+                hs_flat_list.append(hs.permute(1, 2, 0).reshape(-1, hs_max_ch))
+            hs_flat = torch.cat(hs_flat_list, dim=0).numpy()
+            
             pca = PCA(n_components=cfg.PCA_COMPONENTS)
             pca.n_features_expected = hs_max_ch
             pca.fit(hs_flat)
@@ -73,8 +92,21 @@ def calculate_stats(cfg, verbose=True, fit_pca=False, pca_path="pca_hs.pkl"):
             if verbose:
                 print(f"Explained variance: {explained_var:.2%}")
             
-            hs_pca = pca.transform(hs_flat).reshape(len(hs_tensor), cfg.IMG_SIZE, cfg.IMG_SIZE, cfg.PCA_COMPONENTS)
-            hs_pca_tensor = torch.from_numpy(hs_pca).permute(0, 3, 1, 2).float()
+            hs_pca_list = []
+            for hs in hs_vals:
+                C, H, W = hs.shape
+                if C < hs_max_ch:
+                    pad = torch.zeros(hs_max_ch - C, H, W)
+                    hs = torch.cat([hs, pad], 0)
+                hs_flat_i = hs.permute(1, 2, 0).reshape(-1, hs_max_ch).numpy()
+                hs_pca_i = pca.transform(hs_flat_i).reshape(H, W, cfg.PCA_COMPONENTS)
+                hs_pca_tensor_i = torch.from_numpy(hs_pca_i).permute(2, 0, 1).float()
+                C_pca, H_pca, W_pca = hs_pca_tensor_i.shape
+                hs_pca_list.append(hs_pca_tensor_i.reshape(C_pca, -1))
+            
+            hs_pca_all = torch.cat(hs_pca_list, dim=1)
+            hs_pca_mean = tuple(hs_pca_all.mean(dim=1).tolist())
+            hs_pca_std = tuple(hs_pca_all.std(dim=1).tolist())
             
             os.makedirs(os.path.dirname(pca_path) if os.path.dirname(pca_path) else '.', exist_ok=True)
             pca_data = {
@@ -82,17 +114,17 @@ def calculate_stats(cfg, verbose=True, fit_pca=False, pca_path="pca_hs.pkl"):
                 'n_features': hs_max_ch,
                 'ms_mean': stats.get('ms_mean'),
                 'ms_std': stats.get('ms_std'),
-                'hs_pca_mean': tuple(hs_pca_tensor.mean(dim=[0, 2, 3]).tolist()),
-                'hs_pca_std': tuple(hs_pca_tensor.std(dim=[0, 2, 3]).tolist()),
+                'hs_pca_mean': hs_pca_mean,
+                'hs_pca_std': hs_pca_std,
                 'pca_explained_variance': float(explained_var)
             }
             joblib.dump(pca_data, pca_path)
             if verbose:
                 print(f"PCA saved: {pca_path} | Variance: {explained_var:.1%}")
             
-            stats['hs_pca_mean'] = pca_data['hs_pca_mean']
-            stats['hs_pca_std'] = pca_data['hs_pca_std']
-            stats['pca_explained_variance'] = pca_data['pca_explained_variance']
+            stats['hs_pca_mean'] = hs_pca_mean
+            stats['hs_pca_std'] = hs_pca_std
+            stats['pca_explained_variance'] = float(explained_var)
     
     return stats
 
