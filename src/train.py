@@ -153,6 +153,7 @@ def main():
     print(f"Mean: {np.mean(fold_scores):.4f} ± {np.std(fold_scores):.4f}")
     
     best_fold = np.argmax(fold_scores)
+    torch.serialization.add_safe_globals([CFG])
     model = WheatClassifier.load_from_checkpoint(f'{cfg.OUT_DIR}/fold_{best_fold}/best.ckpt', cfg=cfg, hs_channels=hs_ch, num_classes=3)
     test_loader = DataLoader(test_dataset, cfg.BATCH_SIZE, False, num_workers=cfg.NUM_WORKERS, pin_memory=True)
     preds = torch.cat([b['preds'] for b in pl.Trainer(accelerator='auto', devices=1).predict(model, test_loader)]).cpu().numpy()
