@@ -30,7 +30,7 @@ def calculate_stats(cfg, verbose=True, fit_pca=False, pca_path="pca_hs.pkl"):
             rgb_vals.append(read_rgb(row['rgb']))
         
         if cfg.USE_MS and 'ms' in row and row['ms']:
-            ms_vals.append(read_ms(row['ms']))
+            ms_vals.append(read_ms(row['ms'], cfg))
         
         if cfg.USE_HS and 'hs' in row and row['hs']:
             hs = read_hs(row['hs'], cfg.HS_DROP_FIRST, cfg.HS_DROP_LAST)

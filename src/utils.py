@@ -101,9 +101,26 @@ def normalize_per_band_minmax(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
     return np.clip(x, 0.0, 1.0)
 
 
-def read_ms(path: str) -> torch.Tensor:
+# MS bands: Blue=0, Green=1, Red=2, RedEdge=3, NIR=4
+_MS_NIR, _MS_RED = 4, 2
+
+
+def compute_ndvi(arr: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    nir = arr[:, :, _MS_NIR].astype(np.float32)
+    red = arr[:, :, _MS_RED].astype(np.float32)
+    ndvi = (nir - red) / (nir + red + eps)
+    ndvi = np.clip((ndvi + 1.0) / 2.0, 0.0, 1.0)  # map [-1,1] -> [0,1]
+    return ndvi[:, :, np.newaxis]
+
+
+def read_ms(path: str, cfg: Optional[CFG] = None) -> torch.Tensor:
     arr = read_tiff(path)
-    arr = normalize_per_band_minmax(arr)
+    if cfg is not None and cfg.MS_ADD_NDVI:
+        ndvi = compute_ndvi(arr)
+        arr = normalize_per_band_minmax(arr)
+        arr = np.concatenate([arr, ndvi], axis=2)
+    else:
+        arr = normalize_per_band_minmax(arr)
     return torch.from_numpy(arr).permute(2, 0, 1)
 
 
@@ -137,7 +154,7 @@ class WheatDataset(Dataset):
         self.pca_n_features = pca_n_features if pca_n_features is not None else hs_ch
         
         self.rgb_ch = 3 if cfg.USE_RGB else 0
-        self.ms_ch = 5 if cfg.USE_MS else 0
+        self.ms_ch = (6 if cfg.MS_ADD_NDVI else 5) if cfg.USE_MS else 0
         
         if pca_model is not None and cfg.USE_HS:
             self.hs_ch_used = cfg.PCA_COMPONENTS
@@ -160,7 +177,7 @@ class WheatDataset(Dataset):
             modalities["rgb"] = None
         
         if self.cfg.USE_MS and pd.notna(row.get("ms")):
-            x = read_ms(row["ms"])
+            x = read_ms(row["ms"], self.cfg)
             x = resize_tensor(x, self.cfg.IMG_SIZE)
             modalities["ms"] = x
         else:
@@ -202,16 +219,17 @@ class WheatDataset(Dataset):
         if modalities["rgb"] is None:
             modalities["rgb"] = torch.zeros(3, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
         if modalities["ms"] is None:
-            modalities["ms"] = torch.zeros(5, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
+            modalities["ms"] = torch.zeros(self.ms_ch, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
         if modalities["hs"] is None:
             modalities["hs"] = torch.zeros(self.hs_ch_used, self.cfg.IMG_SIZE, self.cfg.IMG_SIZE)
         
+        ms_end = 3 + self.ms_ch
         if self.transforms:
             stacked = torch.cat([modalities["rgb"], modalities["ms"], modalities["hs"]], 0)
             stacked = self.transforms(stacked.unsqueeze(0)).squeeze(0)
             modalities["rgb"] = stacked[:3]
-            modalities["ms"] = stacked[3:8]
-            modalities["hs"] = stacked[8:8+self.hs_ch_used]
+            modalities["ms"] = stacked[3:ms_end]
+            modalities["hs"] = stacked[ms_end:ms_end+self.hs_ch_used]
         
         if self.cfg.RGB_MEAN is not None and self.cfg.RGB_STD is not None:
             mean = torch.tensor(self.cfg.RGB_MEAN).view(3, 1, 1)
@@ -219,9 +237,9 @@ class WheatDataset(Dataset):
             modalities["rgb"] = (modalities["rgb"] - mean) / std
         
         if self.cfg.MS_MEAN is not None and self.cfg.MS_STD is not None:
-            mean = torch.tensor(self.cfg.MS_MEAN).view(5, 1, 1)
-            std = torch.tensor(self.cfg.MS_STD).view(5, 1, 1)
-            modalities["ms"] = (modalities["ms"] - mean) / std
+            ms_mean = torch.tensor(self.cfg.MS_MEAN)[:self.ms_ch]
+            ms_std = torch.tensor(self.cfg.MS_STD)[:self.ms_ch]
+            modalities["ms"] = (modalities["ms"] - ms_mean.view(self.ms_ch, 1, 1)) / ms_std.view(self.ms_ch, 1, 1)
         
         if self.cfg.HS_MEAN is not None and self.cfg.HS_STD is not None:
             hs_mean = torch.tensor(self.cfg.HS_MEAN)[:self.hs_ch_used]

@@ -66,29 +66,24 @@ class MultiModalClassifier(nn.Module):
             feat_dims.append(256)
         
         if self.use_ms:
-            self.ms_attention = SpectralAttention(5)
+            ms_ch = 6 if cfg.MS_ADD_NDVI else 5
+            self.ms_attention = SpectralAttention(ms_ch)
             self.ms_encoder = timm.create_model(
                 cfg.MS_BACKBONE,
-                pretrained=True,
-                in_chans=5,
+                pretrained=False,
+                in_chans=ms_ch,
                 num_classes=0
             )
-            if cfg.MS_FREEZE_ENCODER:
-                for param in self.ms_encoder.parameters():
-                    param.requires_grad = False
             feat_dims.append(self.ms_encoder.num_features)
         
         if self.use_hs:
             self.hs_attention = SpectralAttention(hs_channels)
             self.hs_encoder = timm.create_model(
                 cfg.HS_BACKBONE,
-                pretrained=True,
+                pretrained=False,
                 in_chans=hs_channels,
                 num_classes=0
             )
-            if cfg.HS_FREEZE_ENCODER:
-                for param in self.hs_encoder.parameters():
-                    param.requires_grad = False
             feat_dims.append(self.hs_encoder.num_features)
         
         total_feat_dim = sum(feat_dims)

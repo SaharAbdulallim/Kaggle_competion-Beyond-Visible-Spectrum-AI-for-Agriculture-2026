@@ -14,12 +14,13 @@ class CFG:
     
     # Architecture
     RGB_BACKBONE: str = "resnet34"
-    MS_BACKBONE: str = "resnet10t"
-    HS_BACKBONE: str = "resnet10t"
+    MS_BACKBONE: str = "edgenext_xx_small"
+    HS_BACKBONE: str = "edgenext_xx_small"
     RGB_PRETRAINED: bool = True
     RGB_FREEZE_ENCODER: bool = True
-    MS_FREEZE_ENCODER: bool = True
-    HS_FREEZE_ENCODER: bool = True
+    
+    # NDVI for Multispectral (bands: Blue=0, Green=1, Red=2, RedEdge=3, NIR=4)
+    MS_ADD_NDVI: bool = True
     
     # PCA for Hyperspectral
     PCA_COMPONENTS: int = 20
@@ -27,12 +28,12 @@ class CFG:
     
     # Hyperparameters (tunable via Optuna)
     IMG_SIZE: int = 64
-    BATCH_SIZE: int = 64
-    EPOCHS: int = 100
-    LR: float = 0.0001
+    BATCH_SIZE: int = 32
+    EPOCHS: int = 50
+    LR: float = 0.001
     WD: float = 0.02
-    LABEL_SMOOTHING: float = 0.1
-    DROPOUT: float = 0.6
+    LABEL_SMOOTHING: float = 0.05
+    DROPOUT: float = 0.4
     MIXUP_ALPHA: float = 0.2
     
     NUM_WORKERS: int = 4
@@ -47,8 +48,8 @@ class CFG:
     RGB_STD: tuple = (0.229, 0.224, 0.225)
     
     # MS/HS stats computed from training data - update after running stats.py
-    MS_MEAN: tuple = (0.382, 0.404, 0.378, 0.397, 0.393)
-    MS_STD: tuple = (0.211, 0.208, 0.211, 0.207, 0.208)
+    MS_MEAN: tuple = (0.382, 0.404, 0.378, 0.397, 0.393, 0.500)
+    MS_STD: tuple = (0.211, 0.208, 0.211, 0.207, 0.208, 0.250)
     
     # HS PCA stats (20 components) - update after running stats.py with PCA
     HS_MEAN: tuple = (-0.000003, -0.000006, -0.000005, -0.000001, 0.000004,
